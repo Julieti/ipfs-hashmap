@@ -1,14 +1,3 @@
-// Copyright (c) 2015, Emir Pasic. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-// Package hashmap implements a map backed by a hash table.
-//
-// Elements are unordered in the map.
-//
-// Structure is not thread safe.
-//
-// Reference: http://en.wikipedia.org/wiki/Associative_array
 package hashmap
 
 import (
@@ -19,8 +8,9 @@ import (
 	"zly.ecnu.edu.cn/hashmap/ipfs"
 )
 
-const BlockSize = 16384
-const MaxKey  = BlockSize / 47
+const BlockSize = 4096
+const MaxKey = BlockSize / 47
+const MaxBucketEntry = BlockSize / (10 + 60)
 // Map holds the elements in go's native map
 type Map struct {
 	m map[interface{}]*Bucket
@@ -53,7 +43,7 @@ func (m *Map) Put(key interface{}, value string, level int, hash []uint32) {
 	if m.next[h] == nil {
 		if m.m[h] != nil {
 			m.m[h].bucket[key] = value
-			if len(m.m[h].bucket) > 5 {
+			if len(m.m[h].bucket) > MaxBucketEntry {
 				m.next[h] = New()
 				for k, v := range m.m[h].bucket {
 					hash := Hash(k)
@@ -78,9 +68,9 @@ func Hash(key interface{}) []uint32 {
 	newHash := make([]uint32, 0)
 	//hash := murmur3.Sum32([]byte(key.(string)))
 	hash := GetHash([]byte(key.(string)))
-	h0 := (hash & 0xff000000) >> 20
-	h1 := (hash & 0x000ff000) >> 12
-	h2 := hash & 0x00ff0000
+	h0 := (hash & 0xfc000000) >> 20
+	h1 := (hash & 0x000fc000) >> 12
+	h2 := hash & 0x000000fc
 
 	newHash = append(newHash, h0, h1, h2)
 	return newHash
@@ -131,8 +121,8 @@ func getALevel(keyWord string, cid string, hash []uint32, level int) (string, []
 				pathList = append(pathList, next)
 				levelList = append(levelList, -1)
 				value = ""
+				break
 			}
-			break
 		}
 		cid = next
 	}
@@ -161,7 +151,7 @@ func getABlock(keyWord string, cid string, h uint32) (string, string, bool) {
 			newCid := n.Value[i]
 			n := &uploadBucket{}
 			err = json.Unmarshal([]byte(content), &n)
-			if n.Type == -1 {
+			if n.Type > 1 {
 				for j, key := range n.Key {
 					if key == keyWord {
 						return n.Value[j], newCid, true
@@ -188,17 +178,63 @@ func traversal(m *Map) string {
 	result := make([]string, 0)
 	cid := ""
 
+	l := 0
+	tempKey := make([]string, 0)
+	templ0Key := make([]string, 0)
+	tempValue := make([]string, 0)
+	newl := 0
+
 	if len(m.next) > 0  {
-		for k := range m.m {
+		for k, b := range m.m {
 			if m.next[k] != nil {
 				cid = traversal(m.next[k])
 				rootKeys = append(rootKeys, strconv.Itoa(int(k.(uint32))))
 				result = append(result, cid)
 				continue
 			} else if m.m[k] != nil {
-				cid := bucketToNode(m.m[k])
-				rootKeys = append(rootKeys, strconv.Itoa(int(k.(uint32))))
+				newl = 0
+				for k, v := range b.bucket {
+					tempKey = append(tempKey, k.(string))
+					tempValue = append(tempValue, v)
+					newl += len(tempKey) + len(tempValue)
+				}
+
+				if l + newl > BlockSize {
+					ul := &uploadBucket {
+						Type: l,
+						Key: tempKey[:len(tempKey) - len(b.bucket)],
+						Value: tempValue[:len(tempValue) - len(b.bucket)],
+					}
+					in, _ := json.Marshal(ul)
+					cid = ipfs.UploadIndex(string(in))
+					rootKeys = append(rootKeys, templ0Key...)
+					for len(templ0Key) > 0 {
+						result = append(result, cid)
+						templ0Key = templ0Key[:len(templ0Key) - 1]
+					}
+					tempKey = tempKey[len(tempKey) - len(b.bucket):]
+					tempValue = tempValue[len(tempValue) - len(b.bucket):]
+					l = newl
+				} else {
+					l += newl
+				}
+
+				templ0Key = append(templ0Key, strconv.Itoa(int(k.(uint32))))
+			}
+		}
+
+		if len(tempKey) > 0 {
+			ul := &uploadBucket {
+				Type: l,
+				Key: tempKey[:],
+				Value: tempValue[:],
+			}
+			in, _ := json.Marshal(ul)
+			cid = ipfs.UploadIndex(string(in))
+			rootKeys = append(rootKeys, templ0Key...)
+			for len(templ0Key) > 0 {
 				result = append(result, cid)
+				templ0Key = templ0Key[:len(templ0Key) - 1]
 			}
 		}
 
@@ -228,16 +264,57 @@ func traversal(m *Map) string {
 		return cid
 	}
 
-	for k := range m.m {
-		cid := bucketToNode(m.m[k])
-		l0Keys = append(l0Keys, strconv.Itoa(int(k.(uint32))))
-		l0Cids = append(l0Cids, cid)
+	l = 0
+	for h, b := range m.m {
+		newl = 0
+		for k, v := range b.bucket {
+			tempKey = append(tempKey, k.(string))
+			tempValue = append(tempValue, v)
+			newl += len(tempKey) + len(tempValue)
+		}
+
+		if l + newl > BlockSize {
+			ul := &uploadBucket {
+				Type: l,
+				Key: tempKey[:len(tempKey) - len(b.bucket)],
+				Value: tempValue[:len(tempValue) - len(b.bucket)],
+			}
+			in, _ := json.Marshal(ul)
+			cid = ipfs.UploadIndex(string(in))
+			l0Keys = append(l0Keys, templ0Key...)
+			for len(templ0Key) > 0 {
+				l0Cids = append(l0Cids, cid)
+				templ0Key = templ0Key[:len(templ0Key) - 1]
+			}
+			tempKey = tempKey[len(tempKey) - len(b.bucket):]
+			tempValue = tempValue[len(tempValue) - len(b.bucket):]
+			l = newl
+		} else {
+			l += newl
+		}
+
+		templ0Key = append(templ0Key, strconv.Itoa(int(h.(uint32))))
+	}
+
+	if len(tempKey) > 0 {
+		ul := &uploadBucket {
+			Type: l,
+			Key: tempKey[:],
+			Value: tempValue[:],
+		}
+		in, _ := json.Marshal(ul)
+		cid = ipfs.UploadIndex(string(in))
+		l0Keys = append(l0Keys, templ0Key...)
+		for len(templ0Key) > 0 {
+			l0Cids = append(l0Cids, cid)
+			templ0Key = templ0Key[:len(templ0Key) - 1]
+		}
 	}
 
 	cid = ""
 	for len(l0Keys) > MaxKey {
 		ul := &uploadBucket {
-			Type: 0,
+			Type: 1,
 			Key: l0Keys[:MaxKey],
 			Value: l0Cids[:MaxKey],
 			Next: cid,
@@ -249,7 +326,7 @@ func traversal(m *Map) string {
 	}
 
 	ul := &uploadBucket {
-		Type: 0,
+		Type: 1,
 		Key: l0Keys,
 		Value: l0Cids,
 		Next: cid,
@@ -446,3 +523,7 @@ func pathToCid(pathList []string, levelList []int, newCid string, level int, key
 
 	return newCid
 }
+
+//func mergeVersion(cid1 string, cid2 string) string {
+//
+//}
