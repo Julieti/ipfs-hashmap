@@ -64,5 +64,14 @@ func CatIndex(indexHash string) string {
 	return string(body)
 }
 
+func UpinBlock(cid string)  {
+	err := sh.Unpin(cid)
+
+	if err != nil {
+		log.Printf("unpin error: %s", err)
+		os.Exit(1)
+	}
+}
+
 
 

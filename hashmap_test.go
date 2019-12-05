@@ -2,8 +2,10 @@ package hashmap
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ func TestCreate(t *testing.T)  {
 	words := loadTestFile("/Users/leah/Downloads/text/5305.txt")
 	m := New()
 	hash := make([]uint32, 0)
+	version := &VersionNote{}
 
 	nowTime := time.Now()
 	for k, v := range words {
@@ -22,23 +25,16 @@ func TestCreate(t *testing.T)  {
 		m.Put(k, v, 0, hash)
 	}
 
-	// Test get
-	//for k := range words {
-	//	hash = Hash(k)
-	//	fmt.Print(k + " ")
-	//	value, found := m.Get(k, 0, hash)
-	//
-	//	if found {
-	//		fmt.Println( value)
-	//	} else {
-	//		break
-	//	}
-	//}
+	cid := m.Traversal()
+	version.Root = cid
+	version.Date = time.Now().Format("2006-01-02 15:04:05")
+	version.DocumentCount = 1
+	version.WordCount = len(words)
 
-	fmt.Println(m.Traversal())
+	in, _ := json.Marshal(version)
+	cid = ipfs.UploadIndex(string(in))
 
-	//fmt.Println(len(m.m))
-
+	fmt.Println(cid)
 	fmt.Println(time.Now().Sub(nowTime))
 
 }
@@ -73,12 +69,15 @@ func TestGet(t *testing.T)  {
 	//cid := "QmSkmmg8ZFX4QqTjpGPS81xCtWXHaFY2Zh6wzafsZAMkMj" // 5000词 256kb 12 8 25m22.389227552s
 	//cid := "Qmea3VtX9LT6gcoqeeQmYiW91GsqtLNYzRUMiCDrE8aeNZ" //300
 	//cid := "Qmbj5mJwSw2PvBRP4oU786mZL6HxMWDdVGAVLajH9jxJAb" //5000
-	cid := "QmW2xTfMT26VwkxhvG1Z2KtH4EzmNXTceAw7Mx3gmYU8LB"
+	//cid := "QmYjqLnRB7iBD5fbvcdeKPoXw4s9Uq5RMJp7pHGxq6EAa6" 5000 + 300
+	//cid := "QmNaAZu4nMvhPL1HL2BR6y7GhWqkcYJX8YoKznpL4x8h4j" //300 + 5000
+	//cid := "QmPLp1er7MtADCX1Y2zMWipVF3fivtKmi7joosPo7zcNC6"//300+10000
+	cid := "QmRNQUKvz7PAg72yj8PQ6tEP6pDStLGk68MQe2ZkBNVoKM"
 
 	//cid := ""
-	words := loadTestFile("/Users/leah/Downloads/text/5305.txt")
 	nowTime := time.Now()
 
+	words := loadTestFile("/Users/leah/Downloads/text/5305.txt")
 	for k := range words {
 		fmt.Println(k)
 		hash := Hash(k)
@@ -91,8 +90,8 @@ func TestGet(t *testing.T)  {
 		fmt.Println(levelList)
 	}
 
-	//hash := Hash("because")
-	//value, pathList, levelList := Get("because", cid, hash, 0)
+	//hash := Hash("isadoramoretti")
+	//value, pathList, levelList := Get("isadoramoretti", cid, hash, 0)
 	//
 	//fmt.Println(value)
 	//fmt.Println(pathList)
@@ -102,11 +101,7 @@ func TestGet(t *testing.T)  {
 }
 
 func TestHash(t *testing.T)  {
-	fmt.Println(Hash("bring"))
-	fmt.Println(Hash("four"))
-	fmt.Println(Hash("leg"))
-	fmt.Println(Hash("man"))
-	fmt.Println(Hash("pig"))
+	fmt.Println(Hash("spoon"))
 }
 
 func TestUint2String(t *testing.T)  {
@@ -115,7 +110,18 @@ func TestUint2String(t *testing.T)  {
 	//value = 3457890
 	//
 	//fmt.Println(strconv.Itoa(int(value.(uint32))))
-	fmt.Println(len("QmbRPWB6RMPzHGjVM5ne2UNmzGPXCmo96pxGWHhrFvk1Za,0.0018850141\n"))
+	ks := make([]string, 0)
+	ks = append(ks, "1")
+	ks = append(ks, "2")
+	ks = append(ks, "3")
+	ks = append(ks, "4")
+	ls := make([]string, 0)
+	ks = append(ks[:3], "5")
+
+	ls = append(ls ,ks...)
+	fmt.Println(ls)
+	fmt.Println(ks)
+	//fmt.Println(len("QmbRPWB6RMPzHGjVM5ne2UNmzGPXCmo96pxGWHhrFvk1Za,0.0018850141\n"))
 }
 
 func TestUpload(t *testing.T)  {
@@ -146,10 +152,58 @@ func TestUpload(t *testing.T)  {
 }
 
 func TestUpdate(t *testing.T) {
-	cid := "QmSiW9WKhTYpMYNvKGJoMFFj759R5pv9F5wFk6M19raEFa"
+	//cid := "QmNhjPf3JSQWpzfdi62vVfqQgk95JopJDEJwmMRxRuHb3k"//5000词
+	cid := "QmSng8oveErXYMYzNrFSoGzSU7aQw3Lg4ssvgMQ1bs8SHw"
+	w := make(map[string]*word2Hash)
+	keys := make(map[string]string, 0)
 
-	words := loadTestFile("/Users/leah/Downloads/words.txt")
+	words := loadTestFile("/Users/leah/Downloads/text/11844.txt")
 
-	fmt.Println(Update(cid, words))
+	for k := range words {
+		keys[k] = ""
+		h := make([]uint32, 0)
+		h = Hash(k)
+		w2H := &word2Hash{
+			hash: h,
+		}
+		w[k] = w2H
+	}
 
+	fmt.Println(Update(cid, words, w, keys))
+
+}
+
+func TestVersionNote(t *testing.T)  {
+	v1 := "QmVe9JUMKPngTHXmHhK9zm2S5i3j6X9bSpYdft7XruaP2y"
+	v2 := "QmSJLKSRzVdwXgwsniX9BxMKepojKdmsLSP9ZbfkQwABai"
+	newRoot := ""
+	r1 := &VersionNote{}
+	content := ipfs.CatIndex(v1)
+	err := json.Unmarshal([]byte(content), &r1)
+
+	r2 := &VersionNote{}
+	content = ipfs.CatIndex(v2)
+	err = json.Unmarshal([]byte(content), &r2)
+
+	if err != nil {
+		log.Printf("version merge error: unmarshal error: %v", err)
+	}
+
+	if r1.WordCount > r2.WordCount {
+		newRoot = VersionMerge(r1.Root, r2.Root, 0)
+	} else {
+		newRoot = VersionMerge(r2.Root, r1.Root, 0)
+	}
+
+	r1.WordCount = r1.WordCount + r2.WordCount
+	r1.DocumentCount = r1.DocumentCount + r2.DocumentCount
+	r1.Date = time.Now().Format("2006-01-02 15:04:05")
+	r1.Root = newRoot
+
+	in, _ := json.Marshal(r1)
+	cid := ipfs.UploadIndex(string(in))
+
+	fmt.Println(cid)
+
+	//QmbtWSHHARBHDsMvSktqTV3R82oSYaDw9dcqFUHuY5Tv3B
 }
